@@ -1,0 +1,6 @@
+(jbuild_version 1)
+
+(executables
+  ((names        (opmer))
+   (public_names (opmer))
+   (libraries (batteries minicli dolog parany))))
