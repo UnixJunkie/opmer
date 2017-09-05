@@ -65,7 +65,7 @@ let collect_one nb_files ht (fn, hash) =
     eprintf "done: %.1f%%\r%!" (100.0 *. (float !finished /. float nb_files))
 
 (* Merkle tree signing of the directory *)
-let sign dir =
+let sign nprocs dir =
   let files =
     lines_of_command
       (* find all pure files under dir, skipping hidden files and directories
@@ -76,14 +76,7 @@ let sign dir =
   let nb_files = L.length files in
   (* sha256sum each one *)
   let fn2hash = Ht.create 11 in
-  (* sequential version *)
-  (* L.iter (fun fn -> *)
-  (*     Ht.add fn2hash fn (hash_file fn) *)
-  (*   ) files; *)
-  (* parallel version *)
-  let csize = 1 in
-  let nprocs = get_nprocs () in
-  Parany.run ~csize ~nprocs
+  Parany.run ~csize:1 ~nprocs
     ~demux:(get_one (ref files))
     ~work:process_one
     ~mux:(collect_one nb_files fn2hash);
@@ -106,6 +99,9 @@ let main () =
      exit 1);
   if CLI.get_set_bool ["-v";"--verbose"] args
   then Log.set_log_level Log.DEBUG;
+  let nprocs = match CLI.get_int_opt ["-n";"--nprocs"] args with
+    | None -> get_nprocs () (* we use all detected CPUs by default *)
+    | Some i -> i (* unless we are told not to do so *) in
   let action =
     match CLI.get_string_opt ["-s";"--sign"] args with
     | Some fn -> Sign fn
@@ -122,7 +118,7 @@ let main () =
                      --sign <repo> OR --clear <repo>"
   in
   match action with
-  | Sign dir -> sign dir
+  | Sign dir -> sign nprocs dir
   | Clear dir -> clear dir
   | Compare (_, _) -> failwith "not implemented yet"
 
