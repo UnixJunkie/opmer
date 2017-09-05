@@ -41,25 +41,6 @@ let collect_one nb_files ht (fn, hash) =
   if !finished mod 1000 = 0 then
     eprintf "done: %.1f%%\r%!" (100.0 *. (float !finished /. float nb_files))
 
-(* Merkle tree of a directory tree *)
-let merkle_tree nprocs dir =
-  let files =
-    Utls.lines_of_command
-      (* find all pure files under dir, skipping hidden files and directories
-         and *.sha256 files *)
-      (sprintf "find %s -not -type d | \
-                grep -v -P '(/\\..+|.+\\.sha256$)' | \
-                sort" dir) in
-  let nb_files = L.length files in
-  (* sha256sum each one *)
-  let fn2hash = Ht.create 11 in
-  Parany.run ~csize:1 ~nprocs
-    ~demux:(get_one (ref files))
-    ~work:process_one
-    ~mux:(collect_one nb_files fn2hash);
-  Log.info "hashed %d" (Ht.length fn2hash)
-  (* FBR: now we need to hash directories *)
-
 (* recursively clear a directory from all the .sha256 files found in it *)
 let clear dir =
   let (_: string) =
@@ -88,8 +69,26 @@ let hash_dir dir =
   Sys.remove tmp_fn;
   dir_hash
 
-(* load all .sha256 files under dir and create a Merkle tree from them *)
-let build_merkle_tree dir =
+(* compute sha256 sum of all files under dir *)
+let hash_under_dir nprocs dir =
+  let files =
+    Utls.lines_of_command
+      (* find all pure files under dir, skipping hidden files and directories
+         and *.sha256 files *)
+      (sprintf "find %s -not -type d | \
+                grep -v -P '(/\\..+|.+\\.sha256$)' | \
+                sort" dir) in
+  let nb_files = L.length files in
+  (* sha256sum each one *)
+  let fn2hash = Ht.create 11 in
+  Parany.run ~csize:1 ~nprocs
+    ~demux:(get_one (ref files))
+    ~work:process_one
+    ~mux:(collect_one nb_files fn2hash);
+  Log.info "hashed %d" (Ht.length fn2hash)
+
+let build_merkle_tree root =
+  (* we have to do a depth fist hashing of all directories under root *)
   failwith "not implemented yet"
 
 let usage () =
@@ -126,11 +125,11 @@ let main () =
         | None -> usage ();
   in
   match action with
-  | Hash dir -> merkle_tree nprocs dir
+  | Hash dir -> hash_under_dir nprocs dir
   | Clear dir -> clear dir
   | Compare (_, _) ->
     (* load the two trees *)
     (* print out differences *)
     failwith "not implemented yet"
 
-(* let () = main () *)
+let () = main ()
