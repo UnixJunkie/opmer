@@ -1,3 +1,7 @@
+open Printf
+
+module L = BatList
+
 let line_of_command cmd =
   Log.debug "line_of_command: %s" cmd;
   let input = Unix.open_process_in cmd in
