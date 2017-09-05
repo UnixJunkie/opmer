@@ -45,3 +45,15 @@ let lines_to_file fn lines =
 
 let create_temp_file () =
   Filename.temp_file "" (* no_prefix *) "" (* no_suffix *)
+
+let directory_depth fn =
+  (* no slash in the path: depth 0; one slash: depth 1, etc. *)
+  BatString.length (BatString.filter ((=) '/') fn)
+
+let rec fold_while p f acc = function
+  | [] -> acc
+  | x :: xs ->
+    if p x then
+      fold_while p f (f x :: acc) xs
+    else
+      acc
