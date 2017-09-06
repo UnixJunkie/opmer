@@ -11,6 +11,16 @@ type action = Hash of directory (* create .sha256 files in repository *)
             | Compare of directory * directory (* compare two already signed repos *)
             | Clear of directory (* remove all .sha256 files under dir *)
 
+let hash_file fn =
+  let sha256 = Cryptokit.Hash.sha256 () in
+  Utls.with_in_file fn (fun input ->
+      Cryptokit.hash_channel sha256 input
+    )
+
+let hash_string s =
+  let sha256 = Cryptokit.Hash.sha256 () in
+  Cryptokit.hash_string sha256 s
+
 let hash_file_persist fn =
   if fn = "" then failwith (sprintf "hash_file_persist: empty fn");
   Utls.line_of_command

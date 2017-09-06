@@ -3,4 +3,4 @@
 (executables
   ((names        (opmer))
    (public_names (opmer))
-   (libraries (batteries minicli dolog parany fileutils))))
+   (libraries (batteries minicli dolog parany fileutils cryptokit))))
