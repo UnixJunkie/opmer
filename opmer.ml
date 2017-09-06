@@ -49,9 +49,10 @@ let get_hash_from_file fn =
 
 (* recursively clear a directory from all the .sha256 files found in it *)
 let clear dir =
+  Log.info "おまちください... (please be patient)";
   assert(FileUtil.(test Is_dir dir));
   let (_: string) =
-    Utls.line_of_command
+    Utls.line_of_command ~debug:true
       (sprintf "find %s -regex '.*\\.sha256$' -exec rm -f {} \\;" dir) in
   ()
 
@@ -101,10 +102,10 @@ let diff logfile lpath rpath =
   let reg = Str.regexp_string "opam-repository" in
   let lprfx_end = Str.search_forward reg lpath 0 in
   let lprfx = String.sub lpath 0 lprfx_end in
-  Log.error "lprfx: %s" lprfx;
+  Log.debug "lprfx: %s" lprfx;
   let rprfx_end = Str.search_forward reg rpath 0 in
   let rprfx = String.sub rpath 0 rprfx_end in
-  Log.error "rprfx: %s" rprfx;
+  Log.debug "rprfx: %s" rprfx;
   (* load left tree *)
   let left = load_dir lprfx lpath in
   (* load right tree *)
@@ -138,7 +139,6 @@ let main () =
   if CLI.get_set_bool ["-v";"--verbose"] args then
     Log.set_log_level Log.DEBUG
   ;
-  let logfile = CLI.get_string ["-o";"--output"] args in
   let nprocs = match CLI.get_int_opt ["-n";"--nprocs"] args with
     | None -> Utls.get_nprocs () (* we use all detected CPUs by default *)
     | Some i -> i (* unless we are told otherwise *) in
@@ -158,6 +158,8 @@ let main () =
   match action with
   | Hash dir -> hash_under_dir nprocs dir
   | Clear dir -> clear dir
-  | Diff (left, right) -> diff logfile left right
+  | Diff (left, right) ->
+    let logfile = CLI.get_string ["-o";"--output"] args in
+    diff logfile left right
 
 let () = main ()
