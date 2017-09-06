@@ -11,4 +11,4 @@ let as_string fn =
   Buffer.contents buff
 
 let dir_depth fn =
-  MyString.count '/' fn
+  MyString.count_char '/' fn
