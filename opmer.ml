@@ -1,4 +1,6 @@
+
 module L = BatList
+module Para = Parallelization
 module String = BatString
 module Ht = BatHashtbl
 
@@ -8,48 +10,40 @@ type directory = string
 
 (* FBR: assert we are given directories; not regular files *)
 type action = Hash of directory (* create .sha256 files in repository *)
-            | Compare of directory * directory (* compare two already signed repos *)
+            | Diff of directory * directory (* compute the diff between two already signed repos *)
             | Clear of directory (* remove all .sha256 files under dir *)
+
+let hash_to_ascii (h: string): string =
+  let to_base64 = Cryptokit.Base64.encode_compact () in
+  Cryptokit.transform_string to_base64 h
+
+let ascii_to_hash (a: string): string =
+  let from_base64 = Cryptokit.Base64.decode () in
+  Cryptokit.transform_string from_base64 a
 
 let hash_file fn =
   let sha256 = Cryptokit.Hash.sha256 () in
-  Utls.with_in_file fn (fun input ->
-      Cryptokit.hash_channel sha256 input
-    )
+  let res = Utls.with_in_file fn (Cryptokit.hash_channel sha256) in
+  hash_to_ascii res
 
 let hash_string s =
   let sha256 = Cryptokit.Hash.sha256 () in
-  Cryptokit.hash_string sha256 s
+  let res = Cryptokit.hash_string sha256 s in
+  hash_to_ascii res
 
+(* create and populate <file>.sha256 *)
 let hash_file_persist fn =
   if fn = "" then failwith (sprintf "hash_file_persist: empty fn");
-  Utls.line_of_command
-    (sprintf "sha256sum %s | cut -d' ' -f1 | tee %s.sha256" fn fn)
+  let hash = hash_file fn in
+  Utls.with_out_file (fn ^ ".sha256") (fun out ->
+      fprintf out "%s" hash
+    )
 
-let hash_file_volatile fn =
-  if fn = "" then failwith (sprintf "hash_file: empty fn");
-  Utls.line_of_command
-    (sprintf "sha256sum %s | cut -d' ' -f1" fn)
-
-let get_one to_process () =
-  match !to_process with
-  | [] -> raise Parany.End_of_input
-  | x :: xs ->
-    let res = x in
-    to_process := xs;
-    res
-
-let process_one fn =
-  Log.debug "%s" fn;
-  (fn, hash_file_persist fn)
-
-let finished = ref 0
-
-let collect_one nb_files ht (fn, hash) =
-  Ht.add ht fn hash;
-  incr finished;
-  if !finished mod 1000 = 0 then
-    eprintf "done: %.1f%%\r%!" (100.0 *. (float !finished /. float nb_files))
+let get_hash_from_file fn =
+  assert(String.ends_with fn ".sha256");
+  assert(not FileUtil.(test Is_dir fn));
+  assert(FileUtil.(test Is_file fn));
+  ascii_to_hash (MyFile.as_string fn)
 
 (* recursively clear a directory from all the .sha256 files found in it *)
 let clear dir =
@@ -58,26 +52,11 @@ let clear dir =
       (sprintf "find %s -regex '.*\\.sha256$' -exec rm -f {} \\;" dir) in
   ()
 
-(* the hash of a regular file is in the corresponding .sha256 file *)
-let retrieve_hash_for_file fn =
-  assert((not FileUtil.(test Is_dir fn)) && FileUtil.(test Is_file fn));
-  Utls.line_of_command (sprintf "cat %s.sha256" fn)
-
-(* the hash of a directory is the hash of all its .sha256 files;
-   of course, all its subdirectories must have been hashed first *)
-let hash_dir dir =
+(*
   let sha256_files =
     Utls.lines_of_command
       (sprintf "find %s -maxdepth 0 -regex '^.*\\.sha256$'" dir) in
-  let sha256_sums =
-    L.map (fun fn ->
-        Utls.line_of_command (sprintf "cat %s" fn)
-      ) sha256_files in
-  let tmp_fn = Utls.create_temp_file () in
-  Utls.lines_to_file tmp_fn sha256_sums;
-  let dir_hash = hash_file_volatile tmp_fn in
-  Sys.remove tmp_fn;
-  dir_hash
+*)
 
 (* compute sha256 sum of all files under dir *)
 let hash_under_dir nprocs dir =
@@ -92,9 +71,9 @@ let hash_under_dir nprocs dir =
   (* sha256sum each one *)
   let fn2hash = Ht.create 11 in
   Parany.run ~csize:1 ~nprocs
-    ~demux:(get_one (ref files))
-    ~work:process_one
-    ~mux:(collect_one nb_files fn2hash);
+    ~demux:(Para.get_one (ref files))
+    ~work:(Para.process_one hash_file_persist)
+    ~mux:(Para.collect_one nb_files fn2hash);
   Log.info "hashed %d" (Ht.length fn2hash)
 
 let build_merkle_tree root =
@@ -128,7 +107,7 @@ let main () =
       match CLI.get_string_opt ["-d";"--diff"] args with
       | Some fn ->
         let left, right = BatString.split ~by:":" fn in
-        Compare (left, right)
+        Diff (left, right)
       | None ->
         match CLI.get_string_opt ["-c";"--clear"] args with
         | Some dir -> Clear dir
@@ -137,9 +116,13 @@ let main () =
   match action with
   | Hash dir -> hash_under_dir nprocs dir
   | Clear dir -> clear dir
-  | Compare (_, _) ->
-    (* load the two trees *)
-    (* print out differences *)
+  | Diff (_, _) ->
+    (* load left tree *)
+    (* load right tree *)
+    (* delta *)
+    (* print only in left *)
+    (* print only in right *)
+    (* inspect the intersection for details about changed ones *)
     failwith "not implemented yet"
 
 let () = main ()

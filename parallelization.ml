@@ -1,4 +1,8 @@
 
+open Printf
+
+module Ht = Hashtbl
+
 (* get one job *)
 let get_one to_process () =
   match !to_process with
@@ -9,9 +13,9 @@ let get_one to_process () =
     res
 
 (* perform one job *)
-let process_one fn =
+let process_one f fn =
   Log.debug "%s" fn;
-  (fn, hash_file_persist fn)
+  (fn, f fn)
 
 let finished = ref 0
 
