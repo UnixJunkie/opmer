@@ -2,8 +2,9 @@ open Printf
 
 module L = BatList
 
-let line_of_command cmd =
-  Log.debug "line_of_command: %s" cmd;
+let line_of_command ?(debug= false) cmd =
+  if debug then
+    Log.info "line_of_command: %s" cmd;
   let input = Unix.open_process_in cmd in
   let line = try input_line input with End_of_file -> "" in
   ignore (Unix.close_process_in input);
