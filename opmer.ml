@@ -68,30 +68,6 @@ let load_dir prfx dir =
   let rel_sha256_files = L.map (MyString.chop_prfx prfx) abs_sha256_files in
   StringSet.of_list rel_sha256_files
 
-(* compute sha256 sum of all files under dir *)
-let hash_under_dir nprocs dir =
-  assert(FileUtil.(test Is_dir dir));
-  let files =
-    Utls.lines_of_command
-      (* find all pure files under dir, skipping hidden files and directories
-         and *.sha256 files *)
-      (sprintf "find %s -not -type d | \
-                grep -v -P '(/\\..+|.+\\.sha256$)' | \
-                sort" dir) in
-  let nb_files = L.length files in
-  (* sha256sum each one *)
-  let fn2hash = Ht.create 11 in
-  Parany.run ~csize:1 ~nprocs
-    ~demux:(Para.get_one (ref files))
-    ~work:(Para.process_one hash_file_persist)
-    ~mux:(Para.collect_one nb_files fn2hash);
-  Log.info "hashed %d" (Ht.length fn2hash);
-  (* now, the hard part of the job: we must create a .merkle for each directory
-     starting from the deepest first.
-     The .merkle contains the hash of all *.sha256 and all *.merkle just under
-     that directory (not recursive) *)
-  failwith "not implemented yet"
-
 (* create the <dir>.merkle by hashing the content of all *.sha256 and *.merkle
    files directly under it *)
 let merkle_dir_persist dir =
@@ -128,6 +104,31 @@ let rec loop = function
         ) to_process' in
     merkle_dir_persist fst_dir;
     loop (fst_dir :: L.rev_append rest rest')
+
+(* compute sha256 sum of all files under dir *)
+let hash_under_dir nprocs dir =
+  assert(FileUtil.(test Is_dir dir));
+  let all_files =
+    Utls.lines_of_command
+      (* find all pure files under dir, skipping hidden files and directories
+         and *.sha256 files *)
+      (sprintf "find %s -not -type d | \
+                grep -v -P '(/\\..+|.+\\.sha256$)' | \
+                sort" dir) in
+  let nb_files = L.length all_files in
+  (* sha256sum each one *)
+  let fn2hash = Ht.create 11 in
+  Parany.run ~csize:1 ~nprocs
+    ~demux:(Para.get_one (ref all_files))
+    ~work:(Para.process_one hash_file_persist)
+    ~mux:(Para.collect_one nb_files fn2hash);
+  Log.info "hashed %d" (Ht.length fn2hash);
+  (* now, the hard part of the job: we must create a .merkle for each directory
+     starting from the deepest first.
+     The .merkle contains the hash of all *.sha256 and all *.merkle just under
+     that directory (not recursive) *)
+  let all_sha256_files = L.map (fun fn -> fn ^ ".sha256") all_files in
+  loop all_sha256_files
 
 let usage () =
   eprintf "usage:\n\
