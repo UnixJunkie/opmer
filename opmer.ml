@@ -92,10 +92,24 @@ let hash_under_dir nprocs dir =
      that directory (not recursive) *)
   failwith "not implemented yet"
 
-(* create the <dir>.merkle by hashing all *.sha256 and *.merkle directly under it *)
+(* create the <dir>.merkle by hashing the content of all *.sha256 and *.merkle
+   files directly under it *)
 let merkle_dir_persist dir =
   assert(FileUtil.(test Is_dir dir));
-  ()
+  let hashes =
+    Utls.lines_of_command
+      (sprintf "find %s -maxdepth 0 -regex '(.*\\.sha256$|.*\\.merkle$)'" dir) in
+  let hashes = List.sort BatString.compare hashes in
+  let buff = Buffer.create 80 in
+  L.iter (fun fn ->
+      let hash = MyFile.as_string fn in
+      Buffer.add_string buff hash
+    ) hashes;
+  let to_hash = Buffer.contents buff in
+  let to_write = hash_string to_hash in
+  Utls.with_out_file (dir ^ ".merkle") (fun out ->
+      fprintf out "%s" to_write
+    )
 
 let rec loop = function
   | [] -> assert(false)
@@ -182,8 +196,7 @@ let main () =
       | None ->
         match CLI.get_string_opt ["-c";"--clear"] args with
         | Some dir -> Clear dir
-        | None -> usage ();
-  in
+        | None -> usage () in
   match action with
   | Hash dir -> hash_under_dir nprocs dir
   | Clear dir -> clear dir
