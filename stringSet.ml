@@ -8,4 +8,4 @@ let delta s1 s2 =
         (only_in_s1, add x common, remove x only_in_s2)
       else
         (add x only_in_s1, common, only_in_s2)
-    ) s1 (empty, empty. empty)
+    ) s1 (empty, empty, s2)
