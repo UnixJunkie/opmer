@@ -9,3 +9,6 @@ let as_string fn =
       with End_of_file -> () (* OK, we read the whole file *)
     );
   Buffer.contents buff
+
+let dir_depth fn =
+  MyString.count '/' fn

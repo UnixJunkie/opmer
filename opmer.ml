@@ -1,4 +1,5 @@
 
+module Fn = Filename
 module L = BatList
 module Para = Parallelization
 module String = BatString
@@ -84,7 +85,35 @@ let hash_under_dir nprocs dir =
     ~demux:(Para.get_one (ref files))
     ~work:(Para.process_one hash_file_persist)
     ~mux:(Para.collect_one nb_files fn2hash);
-  Log.info "hashed %d" (Ht.length fn2hash)
+  Log.info "hashed %d" (Ht.length fn2hash);
+  (* now, the hard part of the job: we must create a .merkle for each directory
+     starting from the deepest first.
+     The .merkle contains the hash of all *.sha256 and all *.merkle just under
+     that directory (not recursive) *)
+  failwith "not implemented yet"
+
+(* create the <dir>.merkle by hashing all *.sha256 and *.merkle directly under it *)
+let merkle_dir_persist dir =
+  assert(FileUtil.(test Is_dir dir));
+  ()
+
+let rec loop = function
+  | [] -> assert(false)
+  | [root_dir] -> merkle_dir_persist root_dir
+  | many_files ->
+    (* get all files with max depth *)
+    let depths = L.map MyFile.dir_depth many_files in
+    let max_depth = L.max depths in
+    let to_process', rest' =
+      L.partition (fun fn -> MyFile.dir_depth fn = max_depth) many_files in
+    let fst_fn = L.hd to_process' in
+    let fst_dir = Fn.dirname fst_fn in
+    let _under_same_dir, rest =
+      L.partition (fun fn ->
+          Fn.dirname fn = fst_dir
+        ) to_process' in
+    merkle_dir_persist fst_dir;
+    loop (fst_dir :: L.rev_append rest rest')
 
 let usage () =
   eprintf "usage:\n\
