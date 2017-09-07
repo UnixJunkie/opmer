@@ -5,8 +5,6 @@ module Para = Parallelization
 module String = BatString
 module Ht = BatHashtbl
 
-let verbose = ref false (* toggled by CLI -v option *)
-
 open Printf
 
 type directory = string
@@ -55,7 +53,7 @@ let retrieve_hash_for_dir dir =
 (* recursively clear a directory from all the *.sha256 and *.merkle
    files found in it *)
 let clear dir =
-  Log.info "おまちください... (please be patient)";
+  Log.info "please be patient ...";
   assert(FileUtil.(test Is_dir dir));
   let root_merkle_fn = dir ^ ".merkle" in
   if FileUtil.(test Is_file root_merkle_fn) then
@@ -89,15 +87,15 @@ let merkle_dir_persist dir =
     Utls.lines_of_command
       (sprintf "find %s -maxdepth 1 -regex '.*\\.\\(sha256\\|merkle\\)$'" dir) in
   let buff = Buffer.create 80 in
-  if !verbose then
-    Log.debug "hashing dir: %s" dir;
   L.iter (fun fn ->
       let hash = MyFile.as_string fn in
       Buffer.add_string buff hash
     ) hashes;
   let to_hash = Buffer.contents buff in
   let to_write = hash_string to_hash in
-  Utls.with_out_file (dir ^ ".merkle") (fun out ->
+  let dot_merkle_fn = dir ^ ".merkle" in
+  Log.debug "%s" dot_merkle_fn;
+  Utls.with_out_file dot_merkle_fn (fun out ->
       fprintf out "%s\n" to_write
     )
 
@@ -138,6 +136,7 @@ let hash_under_dir nprocs dir =
     ~work:(Para.process_one hash_file_persist)
     ~mux:(Para.collect_one nb_files fn2hash);
   Log.info "hashed %d" (Ht.length fn2hash);
+  Log.info "constructing the Merkle tree for them ...";
   (* now, the hard part of the job: we must create a .merkle for each directory
      starting from the deepest first.
      The .merkle contains the hash of all *.sha256 and all *.merkle just under
@@ -179,7 +178,7 @@ let process_one_dir out lprfx ldir rprfx rdir = function
     let ldir' = lprfx ^ dir in
     let rdir' = rprfx ^ dir in
     if dir_has_changed ldir' rdir' then
-      (if !verbose then Log.info "changes under %s" dir;
+      (Log.debug "changes under %s" dir;
        let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
        others)
     else
@@ -197,10 +196,10 @@ let diff logfile lpath rpath =
   let reg = Str.regexp_string "opam-repository" in
   let lprfx_end = Str.search_forward reg lpath 0 in
   let lprfx = String.sub lpath 0 lprfx_end in
-  Log.debug "lprfx: %s" lprfx;
+  (* Log.debug "lprfx: %s" lprfx; *)
   let rprfx_end = Str.search_forward reg rpath 0 in
   let rprfx = String.sub rpath 0 rprfx_end in
-  Log.debug "rprfx: %s" rprfx;
+  (* Log.debug "rprfx: %s" rprfx; *)
   (* load left tree *)
   let left = load_dir lprfx lpath in
   (* load right tree *)
@@ -237,12 +236,9 @@ let main () =
   Log.set_log_level Log.INFO;
   let argc, args = CLI.init () in
   if argc = 1 then
-    usage()
-  ;
+    usage();
   if CLI.get_set_bool ["-v";"--verbose"] args then
-    (Log.set_log_level Log.DEBUG;
-     verbose := true)
-  ;
+    Log.set_log_level Log.DEBUG;
   let nprocs = match CLI.get_int_opt ["-n";"--nprocs"] args with
     | None -> Utls.get_nprocs () (* we use all detected CPUs by default *)
     | Some i -> i (* unless we are told otherwise *) in
