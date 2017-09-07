@@ -52,10 +52,10 @@ let get_hash_from_file fn =
 let clear dir =
   Log.info "おまちください... (please be patient)";
   assert(FileUtil.(test Is_dir dir));
-  let (_: string) =
-    Utls.line_of_command ~debug:true
-      (sprintf "find %s -regex '.*\\.sha256$' -exec rm -f {} \\;" dir) in
-  ()
+  let to_delete =
+    Utls.lines_of_command ~debug:true
+      (sprintf "find %s -regex '.*\\.\\(sha256\\|merkle\\)$'" dir) in
+  L.iter Sys.remove to_delete
 
 (* a signed dir is just a set of strings: its list of *.sha256 files *)
 let load_dir prfx dir =
@@ -63,7 +63,7 @@ let load_dir prfx dir =
     failwith ("load_dir: not a directory: " ^ dir);
   let abs_sha256_files =
     Utls.lines_of_command
-      (sprintf "find %s -regex '^.*\\.sha256$'" dir) in
+      (sprintf "find %s -regex '.*\\.sha256$'" dir) in
   (* remove prefixes (everything up to '/opam-repository' *)
   let rel_sha256_files = L.map (MyString.chop_prfx prfx) abs_sha256_files in
   StringSet.of_list rel_sha256_files
@@ -74,7 +74,7 @@ let merkle_dir_persist dir =
   assert(FileUtil.(test Is_dir dir));
   let hashes =
     Utls.lines_of_command
-      (sprintf "find %s -maxdepth 0 -regex '(.*\\.sha256$|.*\\.merkle$)'" dir) in
+      (sprintf "find %s -maxdepth 0 -regex '(.*\\.\\(sha256\\|merkle\\)$'" dir) in
   let hashes = List.sort BatString.compare hashes in
   let buff = Buffer.create 80 in
   L.iter (fun fn ->
@@ -105,15 +105,16 @@ let rec loop = function
     merkle_dir_persist fst_dir;
     loop (fst_dir :: L.rev_append rest rest')
 
-(* compute sha256 sum of all files under dir *)
+(* compute sha256 sum of all files under dir
+   first: the dir is cleaned of any previous run files *)
 let hash_under_dir nprocs dir =
   assert(FileUtil.(test Is_dir dir));
+  clear dir;
   let all_files =
     Utls.lines_of_command
-      (* find all pure files under dir, skipping hidden files and directories
-         and *.sha256 files *)
+      (* find all pure files under dir, skipping hidden files and directories *)
       (sprintf "find %s -not -type d | \
-                grep -v -P '(/\\..+|.+\\.sha256$)' | \
+                grep -v -P '/\\..+' | \
                 sort" dir) in
   let nb_files = L.length all_files in
   (* sha256sum each one *)
