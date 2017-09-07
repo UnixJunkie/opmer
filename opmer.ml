@@ -5,6 +5,8 @@ module Para = Parallelization
 module String = BatString
 module Ht = BatHashtbl
 
+let verbose = ref false (* toggled by CLI -v option *)
+
 open Printf
 
 type directory = string
@@ -34,7 +36,7 @@ let hash_file_persist fn =
   if fn = "" then failwith (sprintf "hash_file_persist: empty fn");
   let hash = hash_file fn in
   Utls.with_out_file (fn ^ ".sha256") (fun out ->
-      fprintf out "%s" hash
+      fprintf out "%s\n" hash
     )
 
 let read_hash_file fn =
@@ -55,7 +57,9 @@ let retrieve_hash_for_dir dir =
 let clear dir =
   Log.info "おまちください... (please be patient)";
   assert(FileUtil.(test Is_dir dir));
-  Sys.remove (dir ^ ".merkle"); (* rm root one *)
+  let root_merkle_fn = dir ^ ".merkle" in
+  if FileUtil.(test Is_file root_merkle_fn) then
+    Sys.remove root_merkle_fn; (* rm root one, if any *)
   let to_delete =
     Utls.lines_of_command ~debug:true
       (sprintf "find %s -regex '.*\\.\\(sha256\\|merkle\\)$'" dir) in
@@ -69,7 +73,7 @@ let load_dir ?(no_recurse = false) prfx dir =
     Utls.lines_of_command
       (sprintf
          (if no_recurse then
-            "find %s -maxdepth 0 -regex '.*\\.sha256$'"
+            "find %s -maxdepth 1 -regex '.*\\.sha256$'"
           else
             "find %s -regex '.*\\.sha256$'")
          dir) in
@@ -83,9 +87,10 @@ let merkle_dir_persist dir =
   assert(FileUtil.(test Is_dir dir));
   let hashes =
     Utls.lines_of_command
-      (sprintf "find %s -maxdepth 0 -regex '(.*\\.\\(sha256\\|merkle\\)$'" dir) in
-  let hashes = List.sort BatString.compare hashes in
+      (sprintf "find %s -maxdepth 1 -regex '.*\\.\\(sha256\\|merkle\\)$'" dir) in
   let buff = Buffer.create 80 in
+  if !verbose then
+    Log.debug "hashing dir: %s" dir;
   L.iter (fun fn ->
       let hash = MyFile.as_string fn in
       Buffer.add_string buff hash
@@ -93,7 +98,7 @@ let merkle_dir_persist dir =
   let to_hash = Buffer.contents buff in
   let to_write = hash_string to_hash in
   Utls.with_out_file (dir ^ ".merkle") (fun out ->
-      fprintf out "%s" to_write
+      fprintf out "%s\n" to_write
     )
 
 let rec encoding_loop = function
@@ -118,7 +123,7 @@ let rec encoding_loop = function
    first: the dir is cleaned of any previous run files *)
 let hash_under_dir nprocs dir =
   assert(FileUtil.(test Is_dir dir));
-  clear dir;
+  clear dir; (* rm all *.sha256 and *.merkle before anything else *)
   let all_files =
     Utls.lines_of_command
       (* find all pure files under dir, skipping hidden files and directories *)
@@ -174,8 +179,9 @@ let process_one_dir out lprfx ldir rprfx rdir = function
     let ldir' = lprfx ^ dir in
     let rdir' = rprfx ^ dir in
     if dir_has_changed ldir' rdir' then
-      let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
-      others
+      (if !verbose then Log.info "changes under %s" dir;
+       let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
+       others)
     else
       (* remove all files under this dir from further detailed inspection;
          thank you Merkle *)
@@ -234,7 +240,8 @@ let main () =
     usage()
   ;
   if CLI.get_set_bool ["-v";"--verbose"] args then
-    Log.set_log_level Log.DEBUG
+    (Log.set_log_level Log.DEBUG;
+     verbose := true)
   ;
   let nprocs = match CLI.get_int_opt ["-n";"--nprocs"] args with
     | None -> Utls.get_nprocs () (* we use all detected CPUs by default *)
