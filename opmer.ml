@@ -19,10 +19,6 @@ let hash_to_ascii (h: string): string =
   let to_base64 = Cryptokit.Base64.encode_compact () in
   Cryptokit.transform_string to_base64 h
 
-let ascii_to_hash (a: string): string =
-  let from_base64 = Cryptokit.Base64.decode () in
-  Cryptokit.transform_string from_base64 a
-
 let hash_file fn =
   let sha256 = Cryptokit.Hash.sha256 () in
   let res = Utls.with_in_file fn (Cryptokit.hash_channel sha256) in
@@ -41,12 +37,18 @@ let hash_file_persist fn =
       fprintf out "%s" hash
     )
 
-let get_hash_from_file fn =
+let read_hash_file fn =
   assert(String.ends_with fn ".sha256");
   assert(not FileUtil.(test Is_dir fn));
   if not (FileUtil.(test Is_file fn)) then
     failwith ("not a regular file: " ^ fn);
-  ascii_to_hash (MyFile.as_string fn)
+  MyFile.as_string fn
+
+let retrieve_hash_for_dir dir =
+  assert(FileUtil.(test Is_dir dir));
+  let dot_merkle_fn = dir ^ ".merkle" in
+  assert(FileUtil.(test Is_file dot_merkle_fn));
+  MyFile.as_string dot_merkle_fn
 
 (* recursively clear a directory from all the *.sha256 and *.merkle
    files found in it *)
@@ -60,12 +62,17 @@ let clear dir =
   L.iter Sys.remove to_delete
 
 (* a signed dir is just a set of strings: its list of *.sha256 files *)
-let load_dir prfx dir =
+let load_dir ?(no_recurse = false) prfx dir =
   if not FileUtil.(test Is_dir dir) then
     failwith ("load_dir: not a directory: " ^ dir);
   let abs_sha256_files =
     Utls.lines_of_command
-      (sprintf "find %s -regex '.*\\.sha256$'" dir) in
+      (sprintf
+         (if no_recurse then
+            "find %s -maxdepth 0 -regex '.*\\.sha256$'"
+          else
+            "find %s -regex '.*\\.sha256$'")
+         dir) in
   (* remove prefixes (everything up to '/opam-repository' *)
   let rel_sha256_files = L.map (MyString.chop_prfx prfx) abs_sha256_files in
   StringSet.of_list rel_sha256_files
@@ -89,7 +96,7 @@ let merkle_dir_persist dir =
       fprintf out "%s" to_write
     )
 
-let rec loop = function
+let rec encoding_loop = function
   | [] -> assert(false)
   | [root_dir] -> merkle_dir_persist root_dir
   | many_files ->
@@ -105,7 +112,7 @@ let rec loop = function
           Fn.dirname fn = fst_dir
         ) to_process' in
     merkle_dir_persist fst_dir;
-    loop (fst_dir :: L.rev_append rest rest')
+    encoding_loop (fst_dir :: L.rev_append rest rest')
 
 (* compute sha256 sum of all files under dir
    first: the dir is cleaned of any previous run files *)
@@ -131,7 +138,7 @@ let hash_under_dir nprocs dir =
      The .merkle contains the hash of all *.sha256 and all *.merkle just under
      that directory (not recursive) *)
   let all_sha256_files = L.map (fun fn -> fn ^ ".sha256") all_files in
-  loop all_sha256_files
+  encoding_loop all_sha256_files
 
 let usage () =
   eprintf "usage:\n\
@@ -140,10 +147,45 @@ let usage () =
   exit 1
 
 (* determine if files have changed because their hashes are no more the same *)
-let has_changed lfn rfn =
-  let lhash = get_hash_from_file lfn in
-  let rhash = get_hash_from_file rfn in
+let file_has_changed lfn rfn =
+  let lhash = read_hash_file lfn in
+  let rhash = read_hash_file rfn in
   lhash <> rhash
+
+let dir_has_changed ldir rdir =
+  (retrieve_hash_for_dir ldir) <> (retrieve_hash_for_dir rdir)
+
+let diff_dir_common_files out lprfx ldir rprfx rdir =
+  let lfiles = load_dir ~no_recurse:true lprfx ldir in
+  let rfiles = load_dir ~no_recurse:true rprfx rdir in
+  (* distinct files are dealt with somewhere else *)
+  let common = StringSet.inter lfiles rfiles in
+  StringSet.iter (fun fn ->
+      let lfn = lprfx ^ fn in
+      let rfn = rprfx ^ fn in
+      if file_has_changed lfn rfn then
+        fprintf out "~ %s\n" fn
+    ) common
+
+let process_one_dir out lprfx ldir rprfx rdir = function
+  | [] -> assert(false)
+  | fn :: others ->
+    let dir = Fn.dirname fn in
+    let ldir' = lprfx ^ dir in
+    let rdir' = rprfx ^ dir in
+    if dir_has_changed ldir' rdir' then
+      let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
+      others
+    else
+      (* remove all files under this dir from further detailed inspection;
+         thank you Merkle *)
+      L.filter (fun fn -> not (BatString.starts_with fn dir)) others
+
+let rec diff_loop out lprfx ldir rprfx rdir = function
+  | [] -> () (* job done *)
+  | some_files ->
+    let less_files = process_one_dir out lprfx ldir rprfx rdir some_files in
+    diff_loop out lprfx ldir rprfx rdir less_files
 
 let diff logfile lpath rpath =
   let reg = Str.regexp_string "opam-repository" in
@@ -167,12 +209,20 @@ let diff logfile lpath rpath =
       StringSet.iter (fprintf out "+ %s\n") were_added;
       (* inspect the intersection for details about changed ones *)
       Log.info "needs to inspect further: %d" (StringSet.cardinal common);
-      StringSet.iter (fun fn ->
-          let lfn = lprfx ^ fn in
-          let rfn = rprfx ^ fn in
-          if has_changed lfn rfn then
-            fprintf out "~ %s\n" fn
-        ) common
+      (* (\* linear, naive strategy *\) *)
+      (* StringSet.iter (fun fn -> *)
+      (*     let lfn = lprfx ^ fn in *)
+      (*     let rfn = rprfx ^ fn in *)
+      (*     if file_has_changed lfn rfn then *)
+      (*       fprintf out "~ %s\n" fn *)
+      (*   ) common *)
+      (* strategy exploiting the Merkle tree *)
+      let common_files = StringSet.to_list common in
+      let shallow_files_first =
+        List.sort (fun lfn rfn ->
+            BatInt.compare (MyFile.dir_depth lfn) (MyFile.dir_depth rfn)
+          ) common_files in
+      diff_loop out lprfx lpath rprfx rpath shallow_files_first
     )
 
 let main () =
