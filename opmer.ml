@@ -182,9 +182,10 @@ let process_one_dir out lprfx ldir rprfx rdir = function
        let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
        others)
     else
-      (* remove all files under this dir from further detailed inspection;
-         thank you Merkle *)
-      L.filter (fun fn -> not (BatString.starts_with fn dir)) others
+      (* remove all files under this dir from further detailed inspection *)
+      (Log.debug "pruning %s" dir;
+       (* FBR: performance bottleneck here *)
+       L.filter (fun fn -> not (MyString.starts_with fn dir)) others)
 
 let rec diff_loop out lprfx ldir rprfx rdir = function
   | [] -> () (* job done *)

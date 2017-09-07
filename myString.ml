@@ -1,6 +1,15 @@
 
+let starts_with s prfx =
+  let len_s = String.length s in
+  let len_p = String.length prfx in
+  if len_s < len_p then
+    false
+  else
+    let sub = String.sub s 0 len_p in
+    String.equal prfx sub
+
 let chop_prfx prfx s =
-  assert(BatString.starts_with s prfx);
+  assert(starts_with s prfx);
   let n = String.length prfx in
   BatString.lchop ~n s
 
