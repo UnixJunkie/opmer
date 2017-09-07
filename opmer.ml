@@ -171,27 +171,23 @@ let diff_dir_common_files out lprfx ldir rprfx rdir =
         fprintf out "~ %s\n" fn
     ) common
 
-let process_one_dir out lprfx ldir rprfx rdir = function
-  | [] -> assert(false)
+let rec diff_loop to_prune out lprfx ldir rprfx rdir = function
+  | [] -> () (* job done *)
   | fn :: others ->
     let dir = Fn.dirname fn in
-    let ldir' = lprfx ^ dir in
-    let rdir' = rprfx ^ dir in
-    if dir_has_changed ldir' rdir' then
-      (Log.debug "changes under %s" dir;
-       let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
-       others)
+    if StringSet.mem dir to_prune then
+      diff_loop to_prune out lprfx ldir rprfx rdir others
     else
-      (* remove all files under this dir from further detailed inspection *)
-      (Log.debug "pruning %s" dir;
-       (* FBR: performance bottleneck here *)
-       L.filter (fun fn -> not (MyString.starts_with fn dir)) others)
-
-let rec diff_loop out lprfx ldir rprfx rdir = function
-  | [] -> () (* job done *)
-  | some_files ->
-    let less_files = process_one_dir out lprfx ldir rprfx rdir some_files in
-    diff_loop out lprfx ldir rprfx rdir less_files
+      let ldir' = lprfx ^ dir in
+      let rdir' = rprfx ^ dir in
+      if dir_has_changed ldir' rdir' then
+        let () = Log.debug "changes under %s" dir in
+        let () = diff_dir_common_files out lprfx ldir' rprfx rdir' in
+        diff_loop to_prune out lprfx ldir rprfx rdir others
+      else
+        (* remove all files under this dir from further detailed inspection *)
+        let () = Log.debug "pruning %s" dir in
+        diff_loop (StringSet.add dir to_prune) out lprfx ldir rprfx rdir others
 
 let diff logfile lpath rpath =
   let reg = Str.regexp_string "opam-repository" in
@@ -228,7 +224,7 @@ let diff logfile lpath rpath =
         List.sort (fun lfn rfn ->
             BatInt.compare (MyFile.dir_depth lfn) (MyFile.dir_depth rfn)
           ) common_files in
-      diff_loop out lprfx lpath rprfx rpath shallow_files_first
+      diff_loop StringSet.empty out lprfx lpath rprfx rpath shallow_files_first
     )
 
 let main () =
