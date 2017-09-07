@@ -2,7 +2,7 @@ open Printf
 
 module L = BatList
 
-let line_of_command ?(debug= false) cmd =
+let line_of_command ?(debug = false) cmd =
   if debug then
     Log.info "line_of_command: %s" cmd;
   let input = Unix.open_process_in cmd in
@@ -10,8 +10,9 @@ let line_of_command ?(debug= false) cmd =
   ignore (Unix.close_process_in input);
   line
 
-let lines_of_command cmd =
-  Log.debug "lines_of_command: %s" cmd;
+let lines_of_command ?(debug = false) cmd =
+  if debug then
+    Log.info "lines_of_command: %s" cmd;
   let buff = Buffer.create 1024 in
   let input = Unix.open_process_in cmd in
   (try
