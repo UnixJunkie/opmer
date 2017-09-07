@@ -22,10 +22,13 @@ let lines_of_command cmd =
      done
    with End_of_file -> ());
   let (_: Unix.process_status) = Unix.close_process_in input in
-  (* skip last '\n' *)
   let n = Buffer.length buff in
-  let big_string = Buffer.sub buff 0 (n - 1) in
-  BatString.split_on_char '\n' big_string
+  if n > 0 then
+    (* skip trailing '\n' *)
+    let big_string = Buffer.sub buff 0 (n - 1) in
+    BatString.split_on_char '\n' big_string
+  else
+    []
 
 let get_nprocs () =
   (* warning: maybe no so portable *)
