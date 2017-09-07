@@ -48,10 +48,12 @@ let get_hash_from_file fn =
     failwith ("not a regular file: " ^ fn);
   ascii_to_hash (MyFile.as_string fn)
 
-(* recursively clear a directory from all the .sha256 files found in it *)
+(* recursively clear a directory from all the *.sha256 and *.merkle
+   files found in it *)
 let clear dir =
   Log.info "おまちください... (please be patient)";
   assert(FileUtil.(test Is_dir dir));
+  Sys.remove (dir ^ ".merkle"); (* rm root one *)
   let to_delete =
     Utls.lines_of_command ~debug:true
       (sprintf "find %s -regex '.*\\.\\(sha256\\|merkle\\)$'" dir) in
